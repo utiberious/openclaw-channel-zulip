@@ -40,6 +40,7 @@ import {
   removeZulipReaction,
   type ZulipMessage,
   type ZulipStream,
+  type ZulipReactionEvent,
 } from "./client.js";
 import {
   createDedupeCache,
@@ -311,6 +312,18 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
   const reactionStart = normalizeZulipEmojiName(reactionConfig.onStart ?? "eyes");
   const reactionSuccess = normalizeZulipEmojiName(reactionConfig.onSuccess ?? "check_mark");
   const reactionError = normalizeZulipEmojiName(reactionConfig.onError ?? "warning");
+
+  // Cache message context for routing reaction events to the correct session
+  type MessageSessionContext = {
+    sessionKey: string;
+    streamId: string;
+    streamName: string;
+    topic: string;
+    accountId: string;
+    to: string;
+  };
+  const MESSAGE_CONTEXT_CACHE_MAX = 500;
+  const messageContextCache = new Map<string, MessageSessionContext>();
 
   const pairing = createScopedPairingAccess({
     core,
@@ -610,6 +623,23 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
     });
 
     const to = kind === "dm" ? `user:${senderId}` : `stream:${streamName || streamId}:${topic}`;
+
+    // Cache context for reaction routing (stream messages only)
+    if (!isDM && messageId) {
+      if (messageContextCache.size >= MESSAGE_CONTEXT_CACHE_MAX) {
+        const firstKey = messageContextCache.keys().next().value;
+        if (firstKey !== undefined) messageContextCache.delete(firstKey);
+      }
+      messageContextCache.set(messageId, {
+        sessionKey,
+        streamId,
+        streamName,
+        topic,
+        accountId: route.accountId,
+        to,
+      });
+    }
+
     const ctxPayload = core.channel.reply.finalizeInboundContext({
       Body: body,
       RawBody: bodyText,
@@ -823,10 +853,123 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
     opts.statusSink?.({ lastInboundAt: Date.now() });
   };
 
+  const handleReaction = async (reactionEvent: ZulipReactionEvent): Promise<void> => {
+    const messageId = String(reactionEvent.message_id ?? "");
+    if (!messageId) {
+      return;
+    }
+    const ctx = messageContextCache.get(messageId);
+    if (!ctx) {
+      logVerboseMessage(
+        `zulip: reaction event for unmapped message ${messageId}, ignoring (cache miss)`,
+      );
+      return;
+    }
+
+    const { sessionKey, streamId, streamName, topic, accountId, to } = ctx;
+    const synthBody = `[ZULIP_REACTION] op=${reactionEvent.op} emoji=${reactionEvent.emoji_name} message_id=${reactionEvent.message_id} user_id=${reactionEvent.user_id}`;
+
+    const ctxPayload = core.channel.reply.finalizeInboundContext({
+      Body: synthBody,
+      RawBody: synthBody,
+      CommandBody: synthBody,
+      From: `zulip:reaction:${reactionEvent.user_id}`,
+      To: to,
+      SessionKey: sessionKey,
+      AccountId: accountId,
+      ChatType: "channel",
+      ConversationLabel: `#${streamName}`,
+      GroupSubject: `#${streamName}`,
+      GroupChannel: `#${streamName}`,
+      Provider: "zulip" as const,
+      Surface: "zulip" as const,
+      MessageSid: messageId,
+      ReplyToId: topic ? topic : undefined,
+      MessageThreadId: topic ? topic : undefined,
+      OriginatingChannel: "zulip" as const,
+      OriginatingTo: to,
+    });
+
+    const route = core.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "zulip",
+      accountId,
+      teamId: undefined,
+      peer: {
+        kind: "channel",
+        id: streamId,
+      },
+    });
+
+    const { dispatcher } = core.channel.reply.createReplyDispatcherWithTyping({
+      humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, route.agentId),
+      deliver: async (payload: ReplyPayload) => {
+        const mediaUrls = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
+        const rawText = core.channel.text.convertMarkdownTables(
+          payload.text ?? "",
+          core.channel.text.resolveMarkdownTableMode({
+            cfg,
+            channel: "zulip",
+            accountId,
+          }),
+        );
+        const { text, topic: topicOverride } = extractZulipTopicDirective(rawText);
+        const resolvedTopic = topicOverride ? topicOverride.slice(0, 60) : topic;
+        if (mediaUrls.length === 0) {
+          const textLimit = core.channel.text.resolveTextChunkLimit(cfg, "zulip", accountId, {
+            fallbackLimit: account.textChunkLimit ?? 4000,
+          });
+          const chunkMode = core.channel.text.resolveChunkMode(cfg, "zulip", accountId);
+          const chunks = core.channel.text.chunkMarkdownTextWithMode(text, textLimit, chunkMode);
+          for (const chunk of chunks.length > 0 ? chunks : [text]) {
+            if (!chunk) {
+              continue;
+            }
+            await sendMessageZulip(to, chunk, {
+              accountId,
+              topic: resolvedTopic,
+            });
+          }
+        } else {
+          let first = true;
+          for (const mediaUrl of mediaUrls) {
+            const caption = first ? text : "";
+            first = false;
+            await sendMessageZulip(to, caption, {
+              accountId,
+              mediaUrl,
+              topic: resolvedTopic,
+            });
+          }
+        }
+        opts.statusSink?.({ lastOutboundAt: Date.now() });
+      },
+      onError: (err: unknown) => {
+        runtime.error?.(`zulip reaction reply failed: ${String(err)}`);
+      },
+    });
+
+    try {
+      await core.channel.reply.dispatchReplyFromConfig({
+        ctx: ctxPayload,
+        cfg,
+        dispatcher,
+        replyOptions: {
+          disableBlockStreaming:
+            typeof account.blockStreaming === "boolean" ? !account.blockStreaming : undefined,
+        },
+      });
+    } catch (err) {
+      runtime.error?.(`zulip reaction reply failed: ${String(err)}`);
+    }
+
+    opts.statusSink?.({ lastInboundAt: Date.now() });
+  };
+
   // Register event queue
   const streams = account.streams ?? ["*"];
   const queue = await registerZulipQueue(client, {
-    eventTypes: ["message"],
+    eventTypes: ["message", "reaction"],
     streams, // Pass ["*"] to trigger all_public_streams=true in registerZulipQueue
   });
   let queueId = queue.queueId;
@@ -865,7 +1008,7 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
         if (isBadQueue) {
           runtime.log?.("zulip: queue expired, re-registering...");
           const newQueue = await registerZulipQueue(client, {
-            eventTypes: ["message"],
+            eventTypes: ["message", "reaction"],
             streams, // Pass ["*"] to trigger all_public_streams=true in registerZulipQueue
           });
           queueId = newQueue.queueId;
@@ -905,6 +1048,11 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
           });
           // Small delay between starting each message for natural pacing
           await delay(200);
+        } else if (event.type === "reaction") {
+          const reactionEvent = event as ZulipReactionEvent;
+          handleReaction(reactionEvent).catch((err) => {
+            runtime.error?.(`zulip: reaction processing failed: ${String(err)}`);
+          });
         }
       }
     } catch (err) {
@@ -915,7 +1063,7 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
       if (errStr.toLowerCase().includes("bad event queue")) {
         runtime.log?.("zulip: bad event queue error thrown; re-registering...");
         const newQueue = await registerZulipQueue(client, {
-          eventTypes: ["message"],
+          eventTypes: ["message", "reaction"],
           streams,
         });
         queueId = newQueue.queueId;

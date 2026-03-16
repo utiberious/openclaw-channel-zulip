@@ -61,6 +61,17 @@ export type ZulipMessage = {
   recipient_id?: string | null;
 };
 
+export type ZulipReactionEvent = {
+  id: number;
+  type: "reaction";
+  op: "add" | "remove";
+  emoji_name: string;
+  emoji_code?: string;
+  reaction_type?: string;
+  user_id: number;
+  message_id: number;
+};
+
 export function normalizeZulipBaseUrl(raw?: string | null): string | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) {
@@ -313,7 +324,9 @@ export async function getZulipEvents(
     signal?: AbortSignal;
   },
 ): Promise<
-  ZulipApiResponse & { events?: Array<{ id: number; type: string; message?: ZulipMessage }> }
+  ZulipApiResponse & {
+    events?: Array<{ id: number; type: string; message?: ZulipMessage } | ZulipReactionEvent>;
+  }
 > {
   const qs = new URLSearchParams({
     queue_id: params.queueId,
@@ -334,7 +347,11 @@ export async function getZulipEvents(
   const timeout = setTimeout(() => controller.abort(), timeoutMs + 15000);
   try {
     return await client.request<
-      ZulipApiResponse & { events?: Array<{ id: number; type: string; message?: ZulipMessage }> }
+      ZulipApiResponse & {
+        events?: Array<
+          { id: number; type: string; message?: ZulipMessage } | ZulipReactionEvent
+        >;
+      }
     >(`/events?${qs.toString()}`, { signal: controller.signal });
   } finally {
     clearTimeout(timeout);
@@ -351,7 +368,9 @@ export async function getZulipEventsWithRetry(
     signal?: AbortSignal;
   },
 ): Promise<
-  ZulipApiResponse & { events?: Array<{ id: number; type: string; message?: ZulipMessage }> }
+  ZulipApiResponse & {
+    events?: Array<{ id: number; type: string; message?: ZulipMessage } | ZulipReactionEvent>;
+  }
 > {
   const qs = new URLSearchParams({
     queue_id: params.queueId,
@@ -372,7 +391,11 @@ export async function getZulipEventsWithRetry(
   const timeout = setTimeout(() => controller.abort(), timeoutMs + 15000);
   try {
     return await zulipRequestWithRetry<
-      ZulipApiResponse & { events?: Array<{ id: number; type: string; message?: ZulipMessage }> }
+      ZulipApiResponse & {
+        events?: Array<
+          { id: number; type: string; message?: ZulipMessage } | ZulipReactionEvent
+        >;
+      }
     >(
       client,
       `/events?${qs.toString()}`,
