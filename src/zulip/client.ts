@@ -137,7 +137,15 @@ export function createZulipClient(params: {
     throw new Error("Zulip email + apiKey are required");
   }
   const authHeader = Buffer.from(`${email}:${apiKey}`).toString("base64");
-  const fetchImpl = params.fetchImpl ?? fetch;
+  
+  // Wrap fetch to enable private network access for self-hosted Zulip servers
+  const defaultFetch: typeof fetch = (url, init) => {
+    return fetch(url, {
+      ...init,
+      allowPrivateNetwork: true,
+    });
+  };
+  const fetchImpl = params.fetchImpl ?? defaultFetch;
 
   const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
     const url = buildZulipApiUrl(baseUrl, path);
