@@ -274,7 +274,7 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
 
   const client = createZulipClient({ baseUrl, email, apiKey });
   const botUser = await fetchZulipMe(client);
-  const botUserId = botUser.id;
+  const botUserId = String(botUser.id);
   const botEmail = botUser.email ?? "";
   const botUsername = botUser.full_name ?? "";
 
@@ -855,7 +855,9 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
 
   const handleReaction = async (reactionEvent: ZulipReactionEvent): Promise<void> => {
     // Filter out bot's own reactions to prevent feedback loops (e.g. eyes/check_mark indicators)
-    if (String(reactionEvent.user_id) === String(botUserId)) {
+    const userId = reactionEvent.user_id;
+    const userIdStr = String(userId);
+    if (userIdStr === botUserId || userIdStr === botEmail) {
       logVerboseMessage(
         `zulip: ignoring bot's own reaction (emoji=${reactionEvent.emoji_name} op=${reactionEvent.op})`,
       );
