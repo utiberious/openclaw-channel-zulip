@@ -287,6 +287,23 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
     ? (message: string) => logger.debug?.(message)
     : () => {};
 
+  // Survey registry: only route reactions for messages in active surveys
+  const surveyRegistryPath = `/tmp/zulip-surveys-${account.accountId}.json`;
+
+  async function loadSurveyRegistry(): Promise<Record<string, { registeredAt: number; options?: string[] }>> {
+    try {
+      const raw = await fs.readFile(surveyRegistryPath, "utf-8");
+      return JSON.parse(raw) as Record<string, { registeredAt: number; options?: string[] }>;
+    } catch {
+      return {};
+    }
+  }
+
+  async function isSurveyActive(messageId: string): Promise<boolean> {
+    const registry = await loadSurveyRegistry();
+    return messageId in registry;
+  }
+
   const defaultTopic = account.config.defaultTopic?.trim() ?? FALLBACK_TOPIC;
   const oncharPrefixes = resolveOncharPrefixes(account.oncharPrefixes);
   const oncharEnabled = account.chatmode === "onchar";
@@ -866,6 +883,13 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
 
     const messageId = String(reactionEvent.message_id ?? "");
     if (!messageId) {
+      return;
+    }
+
+    // Only route reactions for active survey messages
+    const surveyActive = await isSurveyActive(messageId);
+    if (!surveyActive) {
+      logVerboseMessage(`zulip: reaction on non-survey message ${messageId}, ignoring`);
       return;
     }
     const ctx = messageContextCache.get(messageId);

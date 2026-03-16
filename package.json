@@ -25,7 +25,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "openclaw": "^2026.3.2"
+    "openclaw": "^2026.3.2",
+    "typescript": "^5.9.3"
   },
   "openclaw": {
     "extensions": [
