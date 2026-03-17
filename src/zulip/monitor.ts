@@ -290,10 +290,25 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
   // Survey registry: only route reactions for messages in active surveys
   const surveyRegistryPath = `/tmp/zulip-surveys-${account.accountId}.json`;
 
-  async function loadSurveyRegistry(): Promise<Record<string, { registeredAt: number; options?: string[] }>> {
+  interface SurveyContext {
+    sessionKey: string;
+    streamId: number;
+    streamName: string;
+    topic: string;
+    accountId: string;
+    to: string;
+  }
+
+  interface SurveyEntry {
+    registeredAt: number;
+    options?: string[];
+    ctx?: SurveyContext;
+  }
+
+  async function loadSurveyRegistry(): Promise<Record<string, SurveyEntry>> {
     try {
       const raw = await fs.readFile(surveyRegistryPath, "utf-8");
-      return JSON.parse(raw) as Record<string, { registeredAt: number; options?: string[] }>;
+      return JSON.parse(raw) as Record<string, SurveyEntry>;
     } catch {
       return {};
     }
@@ -302,6 +317,11 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
   async function isSurveyActive(messageId: string): Promise<boolean> {
     const registry = await loadSurveyRegistry();
     return messageId in registry;
+  }
+
+  async function getSurveyContext(messageId: string): Promise<SurveyContext | null> {
+    const registry = await loadSurveyRegistry();
+    return registry[messageId]?.ctx ?? null;
   }
 
   const defaultTopic = account.config.defaultTopic?.trim() ?? FALLBACK_TOPIC;
@@ -363,6 +383,34 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
       return;
     }
     if (senderId === botEmail || String(message.sender_id) === botUserId) {
+      // Cache bot's own outbound stream messages for reaction routing
+      const isBotDM = message.type === "private";
+      const botMsgId = String(message.id ?? "");
+      if (!isBotDM && botMsgId) {
+        const botStreamId = String(message.stream_id ?? "");
+        const botStreamName =
+          typeof message.display_recipient === "string" ? message.display_recipient : "";
+        const botTopic = message.subject?.trim() || defaultTopic;
+        const botTo = `stream:${botStreamName || botStreamId}:${botTopic}`;
+        // Derive session key from stream channel + topic (matches monitor routing convention)
+        const botChannelId = botStreamId;
+        const botSessionKey = `agent:main:zulip:channel:${botChannelId}:thread:${botTopic}`;
+        if (messageContextCache.size >= MESSAGE_CONTEXT_CACHE_MAX) {
+          const firstKey = messageContextCache.keys().next().value;
+          if (firstKey !== undefined) messageContextCache.delete(firstKey);
+        }
+        messageContextCache.set(botMsgId, {
+          sessionKey: botSessionKey,
+          streamId: botStreamId,
+          streamName: botStreamName,
+          topic: botTopic,
+          accountId: account.accountId,
+          to: botTo,
+        });
+        logVerboseMessage(
+          `zulip: cached bot outbound message ${botMsgId} for reaction routing (session=${botSessionKey})`,
+        );
+      }
       return;
     }
 
@@ -886,18 +934,29 @@ export async function monitorZulipProvider(opts: MonitorZulipOpts = {}): Promise
       return;
     }
 
-    // Only route reactions for active survey messages
-    const surveyActive = await isSurveyActive(messageId);
-    if (!surveyActive) {
-      logVerboseMessage(`zulip: reaction on non-survey message ${messageId}, ignoring`);
-      return;
-    }
-    const ctx = messageContextCache.get(messageId);
+    // Route reactions for messages in the context cache (bot's own outbound messages)
+    // or in the survey registry (explicitly registered surveys).
+    let ctx = messageContextCache.get(messageId);
     if (!ctx) {
+      // Fall back to context stored in survey registry
+      const registryCtx = await getSurveyContext(messageId);
+      if (registryCtx) {
+        // Normalize SurveyContext → MessageSessionContext (streamId may be number in registry)
+        ctx = {
+          ...registryCtx,
+          streamId: String(registryCtx.streamId),
+        };
+        logVerboseMessage(
+          `zulip: reaction event for ${messageId} — cache miss, using registry context`,
+        );
+      } else {
+        logVerboseMessage(`zulip: reaction on non-survey message ${messageId}, ignoring`);
+        return;
+      }
+    } else {
       logVerboseMessage(
-        `zulip: reaction event for unmapped message ${messageId}, ignoring (cache miss)`,
+        `zulip: reaction event for ${messageId} — routed via message context cache`,
       );
-      return;
     }
 
     const { sessionKey, streamId, streamName, topic, accountId, to } = ctx;
