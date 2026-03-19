@@ -4,7 +4,7 @@ import { zulipPlugin } from "./src/channel.js";
 import { setZulipRuntime } from "./src/runtime.js";
 
 const plugin = {
-  id: "zulip",
+  id: "openclaw-channel-zulip",
   name: "Zulip",
   description: "Zulip channel plugin",
   configSchema: emptyPluginConfigSchema(),
