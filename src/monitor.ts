@@ -110,7 +110,7 @@ async function pollLoop(
         queueId: queueId!,
         lastEventId,
       });
-      const events = result.events ?? [];
+      const events = result;
 
       backoff = 1000;
 
