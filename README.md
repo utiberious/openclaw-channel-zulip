@@ -76,7 +76,7 @@ The plugin loads synchronously at startup. Tools are available immediately.
 
 #### Option B: Custom marketplace (full channel integration)
 
-For `--channels` integration (the same mechanism official plugins use), register a custom marketplace:
+For full channel integration (inbound + outbound), register a custom marketplace:
 
 **1.** Add to `~/.claude/settings.json`:
 
@@ -99,12 +99,19 @@ For `--channels` integration (the same mechanism official plugins use), register
 **2.** Start Claude Code:
 
 ```bash
-claude --channels plugin:zulip@utiberious
+claude --dangerously-load-development-channels plugin:zulip@utiberious
 ```
 
-On first launch, Claude Code clones the repo and caches the plugin (slow). Subsequent launches use the warm cache and load instantly.
+With other channels (e.g., Discord from the official marketplace):
 
-> **Important:** Custom plugins cannot use `claude-plugins-official` as the marketplace — Claude Code validates against the remote manifest and rejects unknown plugins. Always use a custom marketplace name.
+```bash
+claude --channels plugin:discord@claude-plugins-official \
+       --dangerously-load-development-channels plugin:zulip@utiberious
+```
+
+On first launch, Claude Code clones the repo and caches the plugin (slow). Subsequent launches use the warm cache and load instantly. A confirmation dialog appears at startup for development channels.
+
+> **Important:** The `--channels` flag enforces an allowlist that only includes official marketplace plugins. Custom marketplace plugins must use `--dangerously-load-development-channels` instead, which shows a one-time confirmation dialog at startup. Custom plugins also cannot use `claude-plugins-official` as the marketplace name.
 
 #### Option C: MCP-only (tools without channel notifications)
 
