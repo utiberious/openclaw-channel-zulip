@@ -76,7 +76,7 @@ The plugin loads synchronously at startup. Tools are available immediately.
 
 #### Option B: Custom marketplace (full channel integration)
 
-For full channel integration (inbound + outbound), you need **two flags** — one to start the MCP server, one to register for inbound notifications:
+For full channel integration (inbound + outbound), configure via `.mcp.json` and use the `server:` channel format:
 
 **1.** Clone and install the plugin:
 
@@ -85,42 +85,35 @@ git clone https://github.com/utiberious/openclaw-channel-zulip.git
 cd openclaw-channel-zulip && bun install
 ```
 
-**2.** Register the marketplace in `~/.claude/settings.json`:
+**2.** Add to `.mcp.json` in your **working directory** (where you launch Claude Code):
 
 ```json
 {
-  "extraKnownMarketplaces": {
-    "utiberious": {
-      "source": {
-        "source": "git",
-        "url": "https://github.com/utiberious/claude-plugins.git"
-      }
+  "mcpServers": {
+    "zulip": {
+      "command": "bun",
+      "args": ["run", "--cwd", "/absolute/path/to/openclaw-channel-zulip", "--silent", "src/index.ts"]
     }
-  },
-  "enabledPlugins": {
-    "zulip@utiberious": true
   }
 }
 ```
 
-**3.** Start Claude Code with both flags:
+**3.** Start Claude Code:
 
 ```bash
-claude --plugin-dir /absolute/path/to/openclaw-channel-zulip \
-       --dangerously-load-development-channels plugin:zulip@utiberious
+claude --dangerously-load-development-channels server:zulip
 ```
 
 With other channels (e.g., Discord from the official marketplace):
 
 ```bash
 claude --channels plugin:discord@claude-plugins-official \
-       --plugin-dir /absolute/path/to/openclaw-channel-zulip \
-       --dangerously-load-development-channels plugin:zulip@utiberious
+       --dangerously-load-development-channels server:zulip
 ```
 
-A confirmation dialog appears at startup for development channels.
+A confirmation dialog appears at startup for development channels ("I am using this for local development").
 
-> **Why two flags?** `--plugin-dir` starts the MCP server (tools). `--dangerously-load-development-channels` registers inbound channel notifications (bypasses the official-only allowlist). Neither works alone — `--plugin-dir` alone gives tools but no inbound messages; `--dangerously-load-development-channels` alone registers for notifications but doesn't start the server. The `--channels` flag only works for official marketplace plugins.
+> **Why this approach?** The `--channels` flag only works for official marketplace plugins (`claude-plugins-official`). Custom plugins must use `.mcp.json` to configure the MCP server + `--dangerously-load-development-channels server:<name>` to register for inbound notifications. The `server:` format matches MCP servers in `.mcp.json`. Note: must be `.mcp.json` in the working directory, not `~/.claude/mcp.json`.
 
 #### Option C: MCP-only (tools without channel notifications)
 
