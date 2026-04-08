@@ -76,9 +76,16 @@ The plugin loads synchronously at startup. Tools are available immediately.
 
 #### Option B: Custom marketplace (full channel integration)
 
-For full channel integration (inbound + outbound), register a custom marketplace:
+For full channel integration (inbound + outbound), you need **two flags** — one to start the MCP server, one to register for inbound notifications:
 
-**1.** Add to `~/.claude/settings.json`:
+**1.** Clone and install the plugin:
+
+```bash
+git clone https://github.com/utiberious/openclaw-channel-zulip.git
+cd openclaw-channel-zulip && bun install
+```
+
+**2.** Register the marketplace in `~/.claude/settings.json`:
 
 ```json
 {
@@ -96,22 +103,24 @@ For full channel integration (inbound + outbound), register a custom marketplace
 }
 ```
 
-**2.** Start Claude Code:
+**3.** Start Claude Code with both flags:
 
 ```bash
-claude --dangerously-load-development-channels plugin:zulip@utiberious
+claude --plugin-dir /absolute/path/to/openclaw-channel-zulip \
+       --dangerously-load-development-channels plugin:zulip@utiberious
 ```
 
 With other channels (e.g., Discord from the official marketplace):
 
 ```bash
 claude --channels plugin:discord@claude-plugins-official \
+       --plugin-dir /absolute/path/to/openclaw-channel-zulip \
        --dangerously-load-development-channels plugin:zulip@utiberious
 ```
 
-On first launch, Claude Code clones the repo and caches the plugin (slow). Subsequent launches use the warm cache and load instantly. A confirmation dialog appears at startup for development channels.
+A confirmation dialog appears at startup for development channels.
 
-> **Important:** The `--channels` flag enforces an allowlist that only includes official marketplace plugins. Custom marketplace plugins must use `--dangerously-load-development-channels` instead, which shows a one-time confirmation dialog at startup. Custom plugins also cannot use `claude-plugins-official` as the marketplace name.
+> **Why two flags?** `--plugin-dir` starts the MCP server (tools). `--dangerously-load-development-channels` registers inbound channel notifications (bypasses the official-only allowlist). Neither works alone — `--plugin-dir` alone gives tools but no inbound messages; `--dangerously-load-development-channels` alone registers for notifications but doesn't start the server. The `--channels` flag only works for official marketplace plugins.
 
 #### Option C: MCP-only (tools without channel notifications)
 
