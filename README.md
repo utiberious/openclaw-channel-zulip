@@ -83,7 +83,7 @@ For `--channels` integration (the same mechanism official plugins use), register
 ```json
 {
   "extraKnownMarketplaces": {
-    "utensil": {
+    "utiberious": {
       "source": {
         "source": "git",
         "url": "https://github.com/utiberious/claude-plugins.git"
@@ -91,7 +91,7 @@ For `--channels` integration (the same mechanism official plugins use), register
     }
   },
   "enabledPlugins": {
-    "zulip@utensil": true
+    "zulip@utiberious": true
   }
 }
 ```
@@ -99,7 +99,7 @@ For `--channels` integration (the same mechanism official plugins use), register
 **2.** Start Claude Code:
 
 ```bash
-claude --channels plugin:zulip@utensil
+claude --channels plugin:zulip@utiberious
 ```
 
 On first launch, Claude Code clones the repo and caches the plugin (slow). Subsequent launches use the warm cache and load instantly.
