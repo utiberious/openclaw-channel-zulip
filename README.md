@@ -48,66 +48,87 @@ Create `~/.claude/channels/zulip/access.json`:
 
 ### 3. Install the Plugin
 
-#### Production Mode (plugin registry)
-
 ```bash
-# Clone the repo
 git clone https://github.com/utiberious/openclaw-channel-zulip.git
 cd openclaw-channel-zulip && bun install
 ```
 
-Register the plugin in `~/.claude/plugins/installed_plugins.json` (add to the `"plugins"` object):
+There are three ways to load the plugin, from simplest to most integrated.
 
-```json
-"zulip@claude-plugins-official": [
-  {
-    "scope": "user",
-    "installPath": "/absolute/path/to/openclaw-channel-zulip",
-    "version": "0.1.0",
-    "installedAt": "2026-04-08T00:00:00.000Z",
-    "lastUpdated": "2026-04-08T00:00:00.000Z"
-  }
-]
+#### Option A: `--plugin-dir` (recommended)
+
+The simplest approach. No registration needed — just point Claude Code at the repo:
+
+```bash
+claude --plugin-dir /absolute/path/to/openclaw-channel-zulip
 ```
 
-Enable it in `~/.claude/settings.json` under `enabledPlugins`:
+With other channels (e.g., Discord):
+
+```bash
+claude --channels plugin:discord@claude-plugins-official \
+       --plugin-dir /absolute/path/to/openclaw-channel-zulip
+```
+
+The plugin loads synchronously at startup. Tools are available immediately.
+
+> **Note:** `--resume` does not pick up new plugins added after session creation. If you add `--plugin-dir` to an existing session, start a fresh session first, then use `--resume` with that new session ID going forward.
+
+#### Option B: Custom marketplace (full channel integration)
+
+For `--channels` integration (the same mechanism official plugins use), register a custom marketplace:
+
+**1.** Add to `~/.claude/settings.json`:
 
 ```json
-"enabledPlugins": {
-  "zulip@claude-plugins-official": true
+{
+  "extraKnownMarketplaces": {
+    "utensil": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/utiberious/openclaw-channel-zulip.git"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "zulip@utensil": true
+  }
 }
 ```
 
-Start Claude Code with the Zulip channel:
+**2.** Start Claude Code:
 
 ```bash
-claude --channels plugin:zulip@claude-plugins-official
+claude --channels plugin:zulip@utensil
 ```
 
-#### Dev Mode (direct run)
+On first launch, Claude Code clones the repo and caches the plugin (slow). Subsequent launches use the warm cache and load instantly.
+
+> **Important:** Custom plugins cannot use `claude-plugins-official` as the marketplace — Claude Code validates against the remote manifest and rejects unknown plugins. Always use a custom marketplace name.
+
+#### Option C: MCP-only (tools without channel notifications)
+
+For standalone MCP testing or tools-only usage:
 
 ```bash
-# Clone and install
-git clone https://github.com/utiberious/openclaw-channel-zulip.git
-cd openclaw-channel-zulip && bun install
-
 # Test the MCP server directly (stdin/stdout)
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}' | bun run src/index.ts
+```
 
-# Or add to ~/.claude/mcp.json for standalone MCP testing
-cat > ~/.claude/mcp.json << 'EOF'
+Or add to `~/.claude/mcp.json`:
+
+```json
 {
   "mcpServers": {
     "zulip": {
       "command": "bun",
-      "args": ["run", "/absolute/path/to/openclaw-channel-zulip/src/index.ts"]
+      "args": ["run", "--cwd", "/absolute/path/to/openclaw-channel-zulip", "--silent", "src/index.ts"]
     }
   }
 }
-EOF
 ```
 
-**Note:** `mcp.json` gives you the tools but NOT channel notifications (inbound messages). For full channel functionality (receiving Zulip messages as `notifications/claude/channel`), use `--channels plugin:zulip@...` which enables the channel protocol.
+> **Note:** `mcp.json` gives you outbound tools (reply, react, etc.) but Claude Code won't process inbound `notifications/claude/channel` messages unless loaded via `--channels` or `--plugin-dir`.
 
 ## Tools
 
