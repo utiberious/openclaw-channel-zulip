@@ -48,17 +48,39 @@ Create `~/.claude/channels/zulip/access.json`:
 
 ### 3. Install the Plugin
 
-#### Production Mode (symlink)
+#### Production Mode (plugin registry)
 
 ```bash
 # Clone the repo
 git clone https://github.com/utiberious/openclaw-channel-zulip.git
 cd openclaw-channel-zulip && bun install
+```
 
-# Symlink into Claude Code's plugin directory
-ln -s "$(pwd)" ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/zulip
+Register the plugin in `~/.claude/plugins/installed_plugins.json` (add to the `"plugins"` object):
 
-# Start Claude Code with the Zulip channel
+```json
+"zulip@claude-plugins-official": [
+  {
+    "scope": "user",
+    "installPath": "/absolute/path/to/openclaw-channel-zulip",
+    "version": "0.1.0",
+    "installedAt": "2026-04-08T00:00:00.000Z",
+    "lastUpdated": "2026-04-08T00:00:00.000Z"
+  }
+]
+```
+
+Enable it in `~/.claude/settings.json` under `enabledPlugins`:
+
+```json
+"enabledPlugins": {
+  "zulip@claude-plugins-official": true
+}
+```
+
+Start Claude Code with the Zulip channel:
+
+```bash
 claude --channels plugin:zulip@claude-plugins-official
 ```
 
