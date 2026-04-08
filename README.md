@@ -86,7 +86,7 @@ For `--channels` integration (the same mechanism official plugins use), register
     "utensil": {
       "source": {
         "source": "git",
-        "url": "https://github.com/utiberious/openclaw-channel-zulip.git"
+        "url": "https://github.com/utiberious/claude-plugins.git"
       }
     }
   },
