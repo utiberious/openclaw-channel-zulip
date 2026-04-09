@@ -26,15 +26,17 @@ export type ChannelNotification = {
   jsonrpc: "2.0";
   method: "notifications/claude/channel";
   params: {
-    source: "zulip";
-    chat_id: string;
-    message_id: string;
-    user: string;
-    user_id: string;
-    ts: string;
     content: string;
-    attachment_count?: number;
-    attachments?: string;
+    meta: {
+      source: "zulip";
+      chat_id: string;
+      message_id: string;
+      user: string;
+      user_id: string;
+      ts: string;
+      attachment_count?: string;
+      attachments?: string;
+    };
   };
 };
 
@@ -262,25 +264,28 @@ async function processMessage(
     jsonrpc: "2.0",
     method: "notifications/claude/channel",
     params: {
-      source: "zulip",
-      chat_id: chatId,
-      message_id: messageId,
-      user: senderName,
-      user_id: String(msg.sender_id ?? ""),
-      ts: timestamp,
       content,
+      meta: {
+        source: "zulip",
+        chat_id: chatId,
+        message_id: messageId,
+        user: senderName,
+        user_id: String(msg.sender_id ?? ""),
+        ts: timestamp,
+        ...(uploadUrls.length > 0
+          ? {
+              attachment_count: String(uploadUrls.length),
+              attachments: uploadUrls
+                .map((url) => {
+                  const name = url.split("/").pop() ?? "file";
+                  return `${name} (${url})`;
+                })
+                .join("; "),
+            }
+          : {}),
+      },
     },
   };
-
-  if (uploadUrls.length > 0) {
-    notification.params.attachment_count = uploadUrls.length;
-    notification.params.attachments = uploadUrls
-      .map((url) => {
-        const name = url.split("/").pop() ?? "file";
-        return `${name} (${url})`;
-      })
-      .join("; ");
-  }
 
   send(notification);
 }
